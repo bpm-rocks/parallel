@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+. bpm
+. ../libparallel
+
+randomDelay() {
+    local delay
+
+    delay=${RANDOM: -1}
+    echo "$(date -Ins) .... $1 before delay of $delay seconds"
+    sleep "$delay"
+    echo "$(date -Ins) .... $1 after delay"
+}
+
+echo "$(date -Ins) Limiting to 3 jobs at once"
+
+for label in one two three four five six seven eight nine ten; do
+    echo "$(date -Ins) -> Starting $label"
+    parallel::run randomDelay "$label"
+    echo "$(date -Ins) -> Started $label"
+done
+
+echo "$(date -Ins) -> Finishing"
+parallel::finish

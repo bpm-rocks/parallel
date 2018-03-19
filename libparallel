@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# The number of jobs to run at once. Leave blank to auto detect.
+PARALLEL_JOBS=
+
+# Don't modify this list. It's tracking the PIDs of every job running in the
+# background.
+PARALLEL_JOB_LIST=()
+
+# An array containing the list of status codes returned by the backgrounded
+# jobs. This can be reset with `parallel::resetStatusCodes` and is
+# automatically wiped out with `parallel::finish`.
+PARALLEL_JOB_STATUS_LIST=()
+
+# Preserves the old SIGINT trap. This library layers on top of the SIGINT
+# trap. If you need to also layer your own functionality on top of this
+# library, don't just use `trap your_handler SIGINT` but instead make sure
+# to also call the previous SIGINT trap as well.
+#
+# Do not modify this variable yourself.
+PARALLEL_OLD_INT_TRAP=
+
+# The method to use when wating for jobs to finish. `wait -n` is faster but
+# only introduced in Bash 4.
+PARALLEL_WAIT_METHOD=
+
+# Checks that all of the backgrounded jobs are still running. If they are
+# not, this will remove them from the list.
+#
+# Examples
+#
+#   parallel::curateJobList
+#
+# Returns nothing.
+parallel::curateJobList() {
+    local alive oldSet pid
+
+    alive=()
+    oldSet=$-
+    set +eE
+
+    if [[ "${#PARALLEL_JOB_LIST[@]}" -gt 0 ]]; then
+        for pid in "${PARALLEL_JOB_LIST[@]}"; do
+            if kill -0 "$pid" > /dev/null 2>&1; then
+                alive[${#alive[@]}]=$pid
+            else
+                wait "$pid"
+                PARALLEL_JOB_STATUS_LIST[${#PARALLEL_JOB_STATUS_LIST[@]}]=$?
+            fi
+        done
+    fi
+
+    PARALLEL_JOB_LIST=( "${alive[@]}" )
+    set "-$oldSet"
+}
+
+
+# Wait for all jobs to complete. Resets the status code array. Returns
+# the number of failures. Removes the SIGINT trap that was added in
+# `parallel::run`.
+#
+# $1 - Destination variable for the status code array, optional.
+#
+# Returns the number of failures.
+parallel::finish() {
+    local code failures
+
+    while [[ "${#PARALLEL_JOB_LIST[@]}" -gt 0 ]]; do
+        parallel::wait
+    done
+
+    if [[ "$(trap - SIGINT)" == "parallel::intTrap" ]]; then
+        # shellcheck disable=SC2064
+        trap "$PARALLEL_OLD_INT_TRAP" SIGINT
+    fi
+
+    failures=0
+
+    for code in "${PARALLEL_JOB_STATUS_LIST[@]}"; do
+        if [[ "$code" -ne 0 ]]; then
+            failures=$((failures + 1))
+        fi
+    done
+
+    # Limit the return code to a maximum of 127
+    if [[ "$failures" -gt 126 ]]; then
+        failures=127
+    fi
+
+    if [[ -n "$1" ]]; then
+        local "$1" && assign::array "$1" "${PARALLEL_JOB_STATUS_LIST[@]}" && return "$failures"
+    else
+        return "$failures"
+    fi
+}
+
+
+# SIGINT trap handler for parallelized operations.  Stop running jobs and
+# send SIGINT to all children.
+#
+# Examples
+#
+#   PARALLEL_OLD_INT_TRAP=$(trap - SIGINT)
+#   PARALLEL_OLD_INT_TRAP=${PARALLEL_OLD_INT_TRAP:--}
+#   trap parallel::intTrap SIGINT
+#
+# Returns nothing.  Will resend SIGINT to current process after restoring
+# the previous SIGINT trap.
+parallel::intTrap() {
+    local pid
+
+    # Send signal to all children.  Don't redeclare the pids variable
+    # shellcheck disable=SC2154
+    if [[ "${#PARALLEL_JOB_LIST[@]}" -gt 0 ]]; then
+        for pid in "${PARALLEL_JOB_LIST[@]}"; do
+            kill -SIGINT "$pid" > /dev/null 2>&1
+        done
+    fi
+
+    # Restore the trap and reissue the SIGINT. We want this to expand now
+    # instead of when signalled.
+    # shellcheck disable=SC2064
+    trap "${PARALLEL_OLD_INT_TRAP:--}" SIGINT
+    PARALLEL_OLD_INT_TRAP=""
+    kill -SIGINT $$
+}
+
+
+# Determines the number of parallel jobs that should be executed. This is
+# executed automatically by the library. It returns the number of CPU
+# processors, defaulting to at least 1.
+#
+# Example:
+#
+#   PARALLEL_JOBS=$(parallel::getLimt)
+#
+# Returns nothing.
+parallel::maxJobs() {
+    local maxJobs
+
+    # Detect number of processors.
+    if [[ -f /proc/cpuinfo ]]; then
+        maxJobs=$(grep -c "^processor"$'\t': /proc/cpuinfo)
+    else
+        maxJobs=$(sysctl -n hw.ncpu)
+    fi
+
+    # Run at least one job at a time.
+    if [[ "$maxJobs" -lt 1 ]]; then
+        maxJobs=1
+    fi
+
+    echo "$maxJobs"
+}
+
+
+# Run one or more jobs in subshells in parallel. Output from each job is
+# currently intermingled, but that behavior may change in the future.
+# The number of jobs that should execute at once is controlled by the
+# PARALLEL_JOBS environment variable, which will default to the number of CPU
+# cores detected.
+#
+# $@ - Command to run.
+#
+# All commands execute in a subshell and are unable to affect the parent's
+# environment. SIGINT is caught and is sent to all executing commands. This
+# helps Control-C abort everything as it should. The status code of the
+# command is lost. This trap is removed when you use `parallel::finish`.
+#
+# If you intend to trap SIGINT, please set that trap up before you call
+# `parallel::run` and only change it again after `parallel::finish`.
+#
+# Examples
+#
+#    # Sample function
+#    sleepABit() {
+#        echo "About to sleep for $1 seconds"
+#        sleep "$1"
+#        echo "Done sleeping $1 seconds"
+#    }
+#
+#    # Explicitly set a limit for this example
+#    PARALLEL_JOBS=1
+#
+#    # Run a job. This executes in the background.
+#    parallel::run sleepABit 5
+#
+#    # Run a third job. This stalls until any previous jobs finishes.
+#    parallel::run sleepABit 3
+#
+#    # Wait for all jobs to be complete
+#    parallel::finish
+#
+#    # At this point, all jobs have finished.
+#
+# Returns nothing.
+parallel::run() {
+    local job
+
+    if [[ -z "$PARALLEL_OLD_INT_TRAP" ]]; then
+        PARALLEL_OLD_INT_TRAP="$(trap - SIGINT)"
+
+        #: This must set the trap to "-" if there was no previous trap.
+        PARALLEL_OLD_INT_TRAP="${PARALLEL_OLD_INT_TRAP:--}"
+        trap parallel::intTrap SIGINT
+    fi
+
+    if [[ "$PARALLEL_JOBS" -lt 1 ]]; then
+        PARALLEL_JOBS=$(parallel::maxJobs)
+    fi
+
+    echo "${#PARALLEL_JOB_LIST[@]} vs $PARALLEL_JOBS"
+    while [[ "${#PARALLEL_JOB_LIST[@]}" -ge "$PARALLEL_JOBS" ]]; do
+        parallel::wait
+        echo "${#PARALLEL_JOB_LIST[@]} vs $PARALLEL_JOBS after wait"
+    done
+
+    # Quote so we can pass this to eval properly
+    printf -v job "%q " "$@"
+
+    # Start the job in a subshell so it is unable to affect the current shell.
+    (
+        eval "$job"
+    ) < /dev/null &
+
+    PARALLEL_JOB_LIST[${#PARALLEL_JOB_LIST[@]}]=$!
+}
+
+
+# Waits for at least one job to complete. Used internally a lot. A user of
+# this library would be better served by looking at `parallel::finish`.
+#
+# Examples
+#
+#   parallel::run sleep 10
+#   parallel::wait
+#
+# Returns nothing.
+parallel::wait() {
+    local newCount oldCount
+
+    if [[ -z "$PARALLEL_WAIT_METHOD" ]]; then
+        code=$(fun() { return 0; }; set +eE; fun & wait -n $! &> /dev/null; echo $?)
+
+        if [[ "$code" -eq 0 ]]; then
+            PARALLEL_WAIT_METHOD=wait
+        else
+            PARALLEL_WAIT_METHOD=sleep
+        fi
+    fi
+
+    oldCount=${#PARALLEL_JOB_LIST[@]}
+    parallel::curateJobList
+    newCount=${#PARALLEL_JOB_LIST[@]}
+
+    while [[ "$newCount" -gt 0 && "$newCount" -ge "$oldCount" ]]; do
+        if [[ "$PARALLEL_WAIT_METHOD" == wait ]]; then
+            wait -n "${PARALLEL_JOB_LIST[@]}"
+        else
+            sleep 1
+        fi
+
+        parallel::curateJobList
+        newCount=${#PARALLEL_JOB_LIST[@]}
+    done
+}
