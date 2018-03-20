@@ -49,7 +49,12 @@ parallel::curateJobList() {
         done
     fi
 
-    PARALLEL_JOB_LIST=( "${alive[@]}" )
+    if [[ "${#alive[@]}" -gt 0 ]]; then
+        PARALLEL_JOB_LIST=( "${alive[@]}" )
+    else
+        PARALLEL_JOB_LIST=()
+    fi
+
     set "-$oldSet"
 }
 
