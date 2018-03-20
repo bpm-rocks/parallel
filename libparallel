@@ -75,18 +75,20 @@ parallel::finish() {
 
     failures=0
 
-    for code in "${PARALLEL_JOB_STATUS_LIST[@]}"; do
-        if [[ "$code" -ne 0 ]]; then
-            failures=$((failures + 1))
-        fi
-    done
+    if [[ "${#PARALLEL_JOB_STATUS_LIST[@]}" -gt 0 ]]; then
+        for code in "${PARALLEL_JOB_STATUS_LIST[@]}"; do
+            if [[ "$code" -ne 0 ]]; then
+                failures=$((failures + 1))
+            fi
+        done
 
-    # Limit the return code to a maximum of 127
-    if [[ "$failures" -gt 126 ]]; then
-        failures=127
+        # Limit the return code to a maximum of 127
+        if [[ "$failures" -gt 126 ]]; then
+            failures=127
+        fi
     fi
 
-    if [[ -n "$1" ]]; then
+    if [[ -n "${1:-}" ]]; then
         local "$1" && assign::array "$1" "${PARALLEL_JOB_STATUS_LIST[@]}" && return "$failures"
     else
         return "$failures"
