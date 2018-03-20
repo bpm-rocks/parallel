@@ -155,8 +155,6 @@ parallel::maxJobs() {
     if [[ "$maxJobs" -lt 1 ]]; then
         maxJobs=1
     fi
-
-    echo "$maxJobs"
 }
 
 
@@ -217,7 +215,6 @@ parallel::run() {
 
     while [[ "${#PARALLEL_JOB_LIST[@]}" -ge "$PARALLEL_JOBS" ]]; do
         parallel::wait
-        echo "${#PARALLEL_JOB_LIST[@]} vs $PARALLEL_JOBS after wait"
     done
 
     # Quote so we can pass this to eval properly
