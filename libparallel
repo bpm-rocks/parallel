@@ -210,7 +210,6 @@ parallel::run() {
         PARALLEL_JOBS=$(parallel::maxJobs)
     fi
 
-    echo "${#PARALLEL_JOB_LIST[@]} vs $PARALLEL_JOBS"
     while [[ "${#PARALLEL_JOB_LIST[@]}" -ge "$PARALLEL_JOBS" ]]; do
         parallel::wait
         echo "${#PARALLEL_JOB_LIST[@]} vs $PARALLEL_JOBS after wait"
