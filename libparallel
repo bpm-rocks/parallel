@@ -155,6 +155,8 @@ parallel::maxJobs() {
     if [[ "$maxJobs" -lt 1 ]]; then
         maxJobs=1
     fi
+
+    echo "$maxJobs"
 }
 
 
