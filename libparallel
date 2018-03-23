@@ -259,7 +259,7 @@ parallel::wait() {
 
     while [[ "$newCount" -gt 0 && "$newCount" -ge "$oldCount" ]]; do
         if [[ "$PARALLEL_WAIT_METHOD" == wait ]]; then
-            wait -n "${PARALLEL_JOB_LIST[@]}"
+            wait -n "${PARALLEL_JOB_LIST[@]}" || :
         else
             sleep 1
         fi
