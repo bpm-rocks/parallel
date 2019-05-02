@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Testing if "wait -n" works and if it changes with the version of Bash or
+# with different settings.
+
+. bpm
+. ../libparallel
+
+# echo "Without strict mode"
+set +eEu +o pipefail
+code1=$(fun() { return 0; }; set +eE; fun & wait -n $! &> /dev/null; echo $?)
+
+# echo "With strict mode"
+set -eEu -o pipefail
+code2=$(fun() { return 0; }; set +eE; fun & wait -n $! &> /dev/null; echo $?)
+
+echo "$BASH_VERSION $code1 $code2"
