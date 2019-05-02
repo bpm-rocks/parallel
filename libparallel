@@ -20,7 +20,7 @@ PARALLEL_JOB_STATUS_LIST=()
 PARALLEL_OLD_INT_TRAP=
 
 # The method to use when wating for jobs to finish. `wait -n` is faster but
-# only introduced in Bash 4.
+# only introduced in Bash 4.3.
 PARALLEL_WAIT_METHOD=
 
 # Checks that all of the backgrounded jobs are still running. If they are
