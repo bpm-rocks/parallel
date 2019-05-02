@@ -13,6 +13,7 @@ randomDelay() {
 }
 
 echo "$(date -Ins) Limiting to 3 jobs at once"
+PARALLEL_JOBS=3
 
 for label in one two three four five six seven eight nine ten; do
     echo "$(date -Ins) -> Starting $label"
